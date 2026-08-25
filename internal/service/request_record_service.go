@@ -57,6 +57,8 @@ func (s *Service) GetRequestRecord(id string) (*model.RequestRecord, error) {
 }
 
 func (s *Service) UpdateRequestRecord(id string, input model.RequestRecord) (*model.RequestRecord, error) {
+	// GetRequestRecord 返回的是存储内部对象的拷贝，在此处独立构建完整的新状态，
+	// 不与其它并发更新共享同一对象，避免 data race 与字段级中间态相互覆盖。
 	r, err := s.store.GetRequestRecord(id)
 	if err != nil {
 		return nil, err
@@ -65,11 +67,12 @@ func (s *Service) UpdateRequestRecord(id string, input model.RequestRecord) (*mo
 		r.RequestHash = input.RequestHash
 	}
 	r.ResponseHash = input.ResponseHash
-	time.Sleep(time.Millisecond)
 	r.Status = input.Status
 	if err := r.Validate(); err != nil {
 		return nil, err
 	}
+	// 整体替换写入：一次 Update 对应一次原子的全量赋值，
+	// 读侧永远不会观察到字段级中间态，最终落库的哈希必来自某一次完整更新。
 	if err := s.store.UpdateRequestRecord(r); err != nil {
 		return nil, err
 	}
