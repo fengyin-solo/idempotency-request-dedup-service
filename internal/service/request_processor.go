@@ -20,7 +20,14 @@ func (s *Service) ProcessRequest(ctx context.Context, idemKeyID, requestHash str
 	if err := s.store.CreateRequestRecord(rec); err != nil {
 		return nil, err
 	}
-	response, err := work(context.Background())
+	response, err := work(ctx)
+	// 请求被取消时绝不能把记录写成成功：即便 work 忽略取消信号仍跑完返回了
+	// nil error，也必须标记为失败，避免取消后的请求留下成功结果。
+	if ctx.Err() != nil {
+		rec.Status = model.RequestRecordStatusFailed
+		_ = s.store.UpdateRequestRecord(rec)
+		return rec, ctx.Err()
+	}
 	if err != nil {
 		rec.Status = model.RequestRecordStatusFailed
 		_ = s.store.UpdateRequestRecord(rec)
